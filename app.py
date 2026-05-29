@@ -1,35 +1,54 @@
-import requests
-from flask import Flask, Response, request
+<?php
+// Capturar parámetros de la URL
+$uri   = isset($_GET['uri']) ? $_GET['uri'] : '';
+$check = isset($_GET['check']) ? $_GET['check'] : '';
+$ua    = isset($_GET['ua']) ? $_GET['ua'] : 'Mozilla/5.0 (Linux; Android 10; SM-G973F)';
 
-app = Flask(__name__)
+if (empty($uri)) {
+    header("HTTP/1.1 400 Bad Request");
+    die("Error: Falta la URL de origen (uri).");
+}
 
-# --- LISTA DE CLIENTES ACTIVOS ---
-# Para agregar más, poné una coma y el nombre abajo entre comillas.
-CLIENTES_PERMITIDOS = [
-    "maxi",
-]
-# ---------------------------------
+// Decodificar las URLs recibidas
+$uri_decode   = urldecode($uri);
+$check_decode = urldecode($check);
 
-PASS_UNICA = "vip2026"
-URL_LISTA_ORIGINAL = "https://raw.githubusercontent.com/shouuker/Shouukertv/refs/heads/Tvshouuker/Tv40.m3u"
+// 1. Conectarse al JSON de tu VPS para traer el Token/TTL activo
+if (!empty($check_decode)) {
+    $ch_check = curl_init();
+    curl_setopt($ch_check, CURLOPT_URL, $check_decode);
+    curl_setopt($ch_check, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch_check, CURLOPT_TIMEOUT, 5);
+    $json_data = curl_exec($ch_check);
+    curl_close($ch_check);
+    
+    $token_data = json_decode($json_data, true);
+    // Aquí puedes manipular las llaves del JSON si necesitas meterlas en la url final
+}
 
-@app.route('/playlist.m3u8')
-def playlist():
-    user = request.args.get('user')
-    password = request.args.get('pass')
+// 2. Hacer la petición hacia el streaming final (Telefe)
+$ch = curl_init();
+curl_setopt($ch, CURLOPT_URL, $uri_decode);
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+curl_setopt($ch, CURLOPT_USERAGENT, $ua);
 
-    if user in CLIENTES_PERMITIDOS and password == PASS_UNICA:
-        try:
-            respuesta = requests.get(URL_LISTA_ORIGINAL, timeout=10)
-            return Response(respuesta.text, mimetype='application/vnd.apple.mpegurl')
-        except:
-            return "Error al conectar con la fuente", 500
-    else:
-        return "Acceso Denegado: Usuario no autorizado o cuenta vencida", 401
+// Cabeceras para saltar el bloqueo de dominio de la web original
+curl_setopt($ch, CURLOPT_HTTPHEADER, array(
+    "Referer: https://bestleague.top/",
+    "Origin: https://bestleague.top"
+));
 
-@app.route('/')
-def index():
-    return "Servidor Maxi TV Digital - Activo y Protegido", 200
+$stream_output = curl_exec($ch);
+$content_type = curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
+curl_close($ch);
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=10000)
+// 3. Emitir el resultado al reproductor IPTV
+if ($stream_output !== false) {
+    header("Content-Type: " . $content_type);
+    echo $stream_output;
+} else {
+    header("HTTP/1.1 500 Internal Server Error");
+    echo "Error al conectar con la señal.";
+}
+?>
